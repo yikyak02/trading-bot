@@ -1,0 +1,15 @@
+#!/bin/sh
+# Load this project's trusted local credentials and use its Python environment.
+set -eu
+PROJECT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "$PROJECT_DIR"
+if [ -f .env ]; then
+    set -a
+    . ./.env
+    set +a
+fi
+if [ ! -x .venv/bin/python ]; then
+    echo 'Missing .venv/bin/python. Follow the README installation steps first.' >&2
+    exit 1
+fi
+exec .venv/bin/python -m trading_bot "$@"

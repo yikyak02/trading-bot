@@ -1,0 +1,21 @@
+{
+  "symbols": ["AAPL", "MSFT", "JPM"],
+  "initial_cash": 100000.0,
+  "max_position_weight": 0.30,
+  "risk_per_position": 0.01,
+  "stop_loss_pct": 0.05,
+  "stop_method": "fixed",
+  "atr_multiple": 2.0,
+  "max_drawdown": 0.15,
+  "fee_bps": 5.0,
+  "slippage_bps": 5.0,
+  "spread_bps": 2.0,
+  "risk_free_rate": 0.0,
+  "ml_entry_threshold": 0.002,
+  "train_fraction": 0.60,
+  "validation_fraction": 0.20,
+  "retrain_sessions": 21,
+  "min_train_sessions": 126,
+  "seed": 42,
+  "feed": "sip"
+}
