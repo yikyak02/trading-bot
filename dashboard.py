@@ -11,20 +11,30 @@ st.title("Stock Research Lab")
 st.caption("Daily US equities · explainable decisions · paper execution only")
 
 runs_root = Path(st.sidebar.text_input("Runs directory", "runs"))
-available = sorted([p.parent for p in runs_root.glob("*/summary.csv")], key=lambda p: p.name, reverse=True)
+available = sorted([p.parent for p in runs_root.glob("*/summary.csv")
+                    if not (p.parent / "RUNNING").exists()], key=lambda p: p.name, reverse=True)
 if not available:
     st.info("Create your first experiment with the offline demo.")
     st.code("python -m trading_bot demo\nstreamlit run dashboard.py", language="bash")
     st.stop()
 run = st.sidebar.selectbox("Experiment", available, format_func=lambda p: p.name)
 manifest = json.loads((run / "manifest.json").read_text())
+advanced = manifest.get("experiment") == "advanced_comparison"
+if advanced:
+    st.info("Exploratory model comparison. Seeds measure training variation, not statistical significance.")
+    seed = st.sidebar.selectbox("Training seed", manifest["options"]["seeds"])
+    with st.expander("Comparison across seeds"):
+        st.dataframe(pd.read_csv(run / "comparisons.csv"), hide_index=True)
+        st.dataframe(pd.read_csv(run / "prediction_metrics.csv"), hide_index=True)
+    run = run / f"seed-{seed}"
 if manifest["dataset"]["source"] == "synthetic_demo":
     st.warning("Synthetic demo — artificial prices. These results do not measure actual stock performance.")
 else:
     st.info("Research uses adjusted OHLC as a total-return proxy. Fills and costs are simulated.")
 period = st.sidebar.radio("Evaluation period", ["test", "validation"],
                           format_func=lambda x: "Final test · frozen model" if x == "test" else "Walk-forward validation")
-strategy = st.sidebar.selectbox("Inspect strategy", ["ml", "technical", "buy_hold"])
+strategies = manifest.get("strategies", ["ml", "technical", "buy_hold"])
+strategy = st.sidebar.selectbox("Inspect strategy", strategies)
 summary = pd.read_csv(run / "summary.csv")
 selected = summary[(summary.period == period) & (summary.strategy == strategy)].iloc[0]
 cols = st.columns(4)
@@ -36,7 +46,7 @@ performance, decisions_tab, risk_tab, paper_tab, provenance = st.tabs([
     "Performance", "Decision journal", "Risk & costs", "Paper account", "Experiment details"])
 with performance:
     curves, drawdowns = {}, {}
-    for name in ("buy_hold", "technical", "ml"):
+    for name in strategies:
         frame = pd.read_csv(run / period / name / "equity.csv", parse_dates=["date"]).set_index("date")
         curves[name] = frame.equity
         drawdowns[name] = frame.drawdown * 100
@@ -59,7 +69,8 @@ with decisions_tab:
         decision = decisions.loc[chosen]
         st.write(decision.reason)
         st.json(json.loads(decision.to_json()))
-        st.caption("ML sensitivity replaces one feature with its training median. It is model sensitivity, not causal attribution or SHAP.")
+        st.caption("Experimental models record forecasts or policy actions; no feature attribution is claimed." if advanced else
+                   "ML sensitivity replaces one feature with its training median. It is model sensitivity, not causal attribution or SHAP.")
     st.download_button("Download decision journal", decisions.to_csv(index=False), "decisions.csv", "text/csv")
     st.subheader("Executed fills")
     st.dataframe(pd.read_csv(run / period / strategy / "trades.csv").tail(100), hide_index=True, use_container_width=True)

@@ -21,6 +21,7 @@ Alpaca historical data → fetch → data/<dataset>/
 | Understand `.env`, `.venv`, `data/`, and `runs/` | [Understand the files](#understand-the-files) |
 | Try the project without an Alpaca account | [Optional offline demo](#optional-offline-demo) |
 | Change stocks, strategy settings, or risk limits | [Strategies and configuration](#strategies-and-configuration) |
+| Compare LSTM, Transformer, news sentiment, and reinforcement learning | [Research experiments](#research-experiments) |
 | Understand performance reports | [Results and metrics](#results-and-metrics) |
 | Send simulated orders to Alpaca | [Optional paper trading](#optional-paper-trading) |
 
@@ -206,6 +207,81 @@ Both active strategies share risk rules. Buy-and-hold remains a conventional ful
 
 Edit a copy of `config/default.json` and pass `--config` to any command. Stops cannot guarantee a maximum loss during gaps. Changing parameters after seeing final-test results makes that period exploratory; reserve new unseen data for a fresh test.
 
+## Research experiments
+
+The `experiment` command compares these research questions on the same trading sessions and portfolio simulator:
+
+| Question | Comparison |
+|---|---|
+| Do sequence models outperform technical indicators? | Small PyTorch LSTM and Transformer versus the technical strategy and gradient-boosted model. |
+| Does news sentiment help? | The same gradient-boosted model with price features alone versus price features plus daily headline sentiment and article count. |
+| How does reinforcement learning compare? | A tabular Q-learning cash/long policy versus supervised return prediction. |
+
+These are offline experiments. The additional models are not enabled for paper-order submission. Implementing a model does not establish that it performs better.
+
+### Install the optional research packages once
+
+```bash
+.venv/bin/python -m pip install -e '.[research]'
+```
+
+This adds PyTorch and VADER sentiment analysis. `requirements-research-lock.txt` records the verified research environment, including the base dependencies.
+
+### Download historical headlines once
+
+Use a news range covering the entire stock dataset:
+
+```bash
+./run-bot fetch-news \
+  --start 2020-01-01 --end 2025-12-31 \
+  --output data/news-2020-2025 --config config/default.json
+```
+
+The snapshot includes original paginated responses, deduplicated articles, and integrity hashes. A failed download without `metadata.json` is incomplete and cannot be used. Choose a new destination if a snapshot already exists.
+
+Headlines are scored with [VADER](https://github.com/cjhutto/vaderSentiment), a general-language lexicon baseline. An article becomes available **15 minutes after the later of its creation and update timestamps**, then contributes to the first eligible exchange-session close. After-close and holiday/weekend news therefore enters a later signal. Each article is used once. No retrieved news gives sentiment zero and count zero; a neutral headline has a positive count.
+
+Alpaca archives can contain revised text, not the original article version. Using the update timestamp avoids backdating the retrieved revision but cannot reconstruct perfect historical availability. Coverage counts are saved in the manifest; absent news is not proof that no news existed. The source is [Alpaca's historical news API](https://docs.alpaca.markets/us/reference/news-3).
+
+### Run all three comparisons
+
+```bash
+./run-bot experiment \
+  --dataset data/stocks-2020-2025 \
+  --news data/news-2020-2025 \
+  --output runs/research-01 --config config/default.json
+```
+
+By default this trains models with seeds 42, 43, and 44, a 20-session lookback, and 8 neural training epochs. It runs seven strategies: `buy_hold`, `technical`, `ml`, `lstm`, `transformer`, `q_learning`, and `ml_sentiment`. Expect more time than an ordinary backtest. Progress is printed after each model and seed.
+
+Omit `--news` to run the price-only and reinforcement-learning comparisons. To run a smaller development check, use a new output directory with `--seeds 42 --epochs 1`. This checks the workflow, not model quality. `--models` selects a subset; the supervised `ml` baseline is always included, along with technical and buy-and-hold benchmarks.
+
+### Read the comparison
+
+Open the usual dashboard and select the research experiment. Choose a training seed in the sidebar, or expand **Comparison across seeds**.
+
+| Output | What to look for |
+|---|---|
+| `comparisons.csv` | Paired return differences versus each question's baseline and the number of seeds with higher returns. |
+| `aggregate.csv` | Mean and standard deviation of performance across seeds. |
+| `prediction_metrics.csv` | MAE, RMSE, and direction accuracy for supervised forecasts; policy actions are not treated as return predictions. |
+| `summary.csv` | All strategy, seed, and evaluation-period results. |
+| `seed-<number>/` | Signals, fitted model artifacts, individual backtests, doubled-cost stress results, and audit database. |
+| `manifest.json` | Model settings, split dates, training cutoffs, source hashes, dependency versions, and news coverage. |
+
+An experiment with a `RUNNING` marker is incomplete and hidden from the dashboard. Completed outputs are never overwritten. Serialized model files are local audit artifacts; do not load pickle files from untrusted sources.
+
+### How the comparisons stay consistent
+
+- LSTM and Transformer use sequences of the existing ten price/volume indicators. All strategies start on the same sequence-ready sessions, which begin later than the ordinary backtest's warmup. Compare strategies within this experiment rather than directly against `stocks-01`.
+- All models use purged chronological training labels. Scalers and Q-learning state bins are fit only on training data. Validation refits every configured 21 sessions; the final-test fit stays frozen. Neural hyperparameters are fixed, with no test-set tuning or early stopping.
+- VADER sentiment and article count are added only to `ml_sentiment`, producing a matched price-versus-news comparison with `ml`.
+- Q-learning uses four indicators binned by training quantiles plus cash/long position state. It trains for 30 passes with discounted open-to-open returns minus estimated switching costs. This is a basic tabular baseline, not deep reinforcement learning or a complete trading environment.
+- Q-learning's training proxy omits portfolio allocation and stops. At evaluation, its decisions use actual simulated holdings and the same allocation, stop, drawdown, and cost rules as the other active strategies. This training/evaluation difference is recorded in the manifest.
+- Each period starts with fresh cash. Buy-and-hold remains a fully invested benchmark without active risk controls. Cost stress reuses trained policies/signals; it does not retrain them.
+
+Compare returns together with drawdown, exposure, trading costs, prediction errors, and variation across seeds. Seeds are repeated optimization runs on the same market history, **not independent evidence of statistical significance**. Because the 2020–2025 results have already been inspected, these comparisons are exploratory. Reserve unseen dates before making a claim that a model consistently outperforms.
+
 ## Results and metrics
 
 ```text
@@ -331,6 +407,9 @@ trading_bot/
   data.py        # Calendar, data checks, snapshots, demo, historical API
   features.py    # Indicators and executable-horizon labels
   models.py      # Gradient boosting, purged fitting, walk-forward, sensitivity
+  experimental_models.py # LSTM, Transformer, Q-learning, shared research splits
+  experiments.py # Multi-seed comparisons and research artifacts
+  news.py        # Historical headlines and timestamp-aligned sentiment
   strategy.py    # Shared signals, stop distance, position sizing
   backtest.py    # Event simulation, accounting, metrics
   research.py    # Experiments, cost stress, reproducibility artifacts
@@ -346,4 +425,4 @@ tests/
 
 This is a research MVP, not evidence of profitability. Artificial demo results say nothing about real stocks. Today's chosen symbols introduce selection/survivorship bias; delisted-universe data is not included. Adjusted daily prices, constant costs, and full fills limit realism. Statistical significance, confidence intervals, market-regime analysis, exact corporate-action accounting, and continuous operational monitoring remain future work.
 
-Freeze the universe and hypothesis, obtain a verified dataset, and preserve unseen data. Then add one experiment at a time: alternative risk controls, an LSTM, timestamped sentiment, or an ensemble. Evaluate risk-adjusted performance across costs and market conditions, not profit alone.
+Freeze the universe and hypothesis, obtain a verified dataset, and preserve unseen data. The research suite now provides LSTM, Transformer, headline-sentiment, and tabular Q-learning baselines. Next steps include finance-specific sentiment, richer RL environments, and parameter selection using training/validation data only. Evaluate risk-adjusted performance across costs and market conditions, not profit alone.

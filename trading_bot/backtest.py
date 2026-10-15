@@ -82,6 +82,7 @@ def run_backtest(bars, signals, strategy, config):
         if signal_date not in next_session:
             continue
         date = next_session[signal_date]
+        held_at_signal = set(positions)
         market = {symbol: indexed.loc[(date, symbol)] for symbol in config.symbols}
         open_equity = cash + sum(p["qty"] * market[s].open for s, p in positions.items())
         if not passive and open_equity / peak - 1 <= -config.max_drawdown:
@@ -97,7 +98,7 @@ def run_backtest(bars, signals, strategy, config):
         # Sell first. Entry allocations use the same opening equity snapshot.
         for _, row in day.iterrows():
             symbol = row.symbol
-            intent = signal(strategy, row, config)
+            intent = signal(strategy, row, config, held=symbol in held_at_signal)
             record = {"date": date, "signal_date": signal_date, "symbol": symbol,
                       "strategy": strategy, "action": "hold", "reason": intent.reason,
                       "prediction": intent.prediction, "requested_budget": 0.0, "approved_budget": 0.0,

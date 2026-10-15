@@ -15,6 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10"]
+research = ["torch>=2.5,<3", "vaderSentiment>=3.3.2,<4"]
 
 [project.scripts]
 stockbot = "trading_bot.cli:main"

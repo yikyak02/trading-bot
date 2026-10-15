@@ -30,7 +30,7 @@ class AlpacaPaper:
         self.session.mount("https://", HTTPAdapter(max_retries=0))
 
     def _request(self, method, path, *, data=False, params=None, payload=None, missing_ok=False):
-        if not path.startswith("/v2/"):
+        if not path.startswith("/v2/") and not (data and method == "GET" and path == "/v1beta1/news"):
             raise BrokerError("Only versioned Alpaca API paths are permitted.")
         if data and method != "GET":
             raise BrokerError("Market data adapter is read-only.")
